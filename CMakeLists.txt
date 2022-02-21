@@ -11,7 +11,6 @@ endif ()
 set(SRC
     src/instrace.c
     src/utils.c
-    src/tls_storage.c
 )
 add_library(instrace SHARED ${SRC})
 

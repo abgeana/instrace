@@ -1,3 +1,5 @@
+// vim: foldmethod=marker
+
 /* Define DR_FAST_IR which disables ABI compatibility between releases but makes things faster.
  * See also https://dynamorio.org/API_BT.html
  */
@@ -6,26 +8,32 @@
 #include "dr_api.h"
 #include "drmgr.h"
 #include "drreg.h"
-#include "tls_storage.h"
 #include "utils.h"
-#include <stddef.h> /* for offsetof */
+
+#include <stddef.h>
 #include <stdio.h>
 
-/* Each log_entry_t describes an executed instruction. */
+// Defines {{{
+
+/* Max number of log_entry_t objects a buffer can have.
+ * It should be big enough to hold all entries in generated for any given basic block.
+ */
+#define MAX_NUM_LOG_ENTRIES 8192
+// The maximum size of buffer for holding ins_refs.
+#define LOG_BUFFER_SIZE (sizeof(log_entry_t) * MAX_NUM_LOG_ENTRIES)
+
+// }}}
+
+// Types {{{
+
+// Each log_entry_t holds state after one instruction.
 typedef struct _log_entry_t {
     app_pc pc;
     int opcode;
     reg_t rax;
 } log_entry_t;
 
-/* Max number of ins_ref a buffer can have. It should be big enough
- * to hold all entries between clean calls.
- */
-#define MAX_NUM_INS_REFS 8192
-/* The maximum size of buffer for holding ins_refs. */
-#define LOG_BUFFER_SIZE (sizeof(log_entry_t) * MAX_NUM_INS_REFS)
-
-/* thread private log file and counter */
+// Thread private data.
 typedef struct {
     byte *seg_base;
     log_entry_t *log_buffer;
@@ -34,12 +42,45 @@ typedef struct {
     uint64 num_refs;
 } per_thread_t;
 
+// Allocated TLS slot offsets.
+typedef enum {
+    INSTRACE_TLS_OFFS_BUF_PTR,
+    INSTRACE_TLS_COUNT, // Total number of TLS slots allocated.
+} tls_slot_t;
+
+// }}}
+
+// Globals {{{
+
 static client_id_t client_id;
-static void *mutex;     /* for multithread support */
-static uint64 num_refs; /* keep a global instruction reference count */
-static reg_id_t tls_seg;
+
+static reg_id_t tls_register;
 static uint tls_offs;
+
 static int data_tls_idx;
+static void *mutex;     /* for multithread support */
+
+// }}}
+
+// TLS access functions {{{
+
+void *get_tls_slot(void *tls_base, uint tls_offs, tls_slot_t slot) {
+    return (tls_base + tls_offs + slot);
+}
+
+void set_tls_slot(void *tls_base, uint tls_offs, tls_slot_t slot, void *value) {
+    *((void **)(tls_base + tls_offs + slot)) = value;
+}
+
+void *get_buf_ptr(void *tls_base, uint tls_offs) {
+    return get_tls_slot(tls_base, tls_offs, INSTRACE_TLS_OFFS_BUF_PTR);
+}
+
+void set_buf_ptr(void *tls_base, uint tls_offs, void *value) {
+    set_tls_slot(tls_base, tls_offs, INSTRACE_TLS_OFFS_BUF_PTR, value);
+}
+
+// }}}
 
 static void instrace(void *drcontext) {
     per_thread_t *data;
@@ -64,6 +105,7 @@ static void instrace(void *drcontext) {
             (ptr_uint_t)ins_ref->rax);
         data->num_refs++;
     }
+
     set_buf_ptr(data->seg_base, tls_offs, data->log_buffer);
 }
 
@@ -79,7 +121,7 @@ static void insert_load_log_buffer(void *drcontext, instrlist_t *ilist, instr_t 
         drcontext,
         ilist,
         where,
-        tls_seg,
+        tls_register,
         tls_offs + INSTRACE_TLS_OFFS_BUF_PTR,
         reg_ptr
     );
@@ -97,7 +139,7 @@ static void insert_update_buf_ptr(void *drcontext, instrlist_t *ilist, instr_t *
             OPND_CREATE_INT16(adjust)
         )
     );
-    dr_insert_write_raw_tls(drcontext, ilist, where, tls_seg, tls_offs + INSTRACE_TLS_OFFS_BUF_PTR, reg_ptr);
+    dr_insert_write_raw_tls(drcontext, ilist, where, tls_register, tls_offs + INSTRACE_TLS_OFFS_BUF_PTR, reg_ptr);
     // clang-format on
 }
 
@@ -246,7 +288,7 @@ static void event_thread_init(void *drcontext) {
     /* Keep seg_base in a per-thread data structure so we can get the TLS
      * slot and find where the pointer points to in the buffer.
      */
-    data->seg_base = dr_get_dr_segment_base(tls_seg);
+    data->seg_base = dr_get_dr_segment_base(tls_register);
     data->log_buffer = dr_raw_mem_alloc(LOG_BUFFER_SIZE, DR_MEMPROT_READ | DR_MEMPROT_WRITE, NULL);
     DR_ASSERT(data->seg_base != NULL && data->log_buffer != NULL);
     /* put log_buffer to TLS as starting buf_ptr */
@@ -273,10 +315,9 @@ static void event_thread_init(void *drcontext) {
 
 static void event_thread_exit(void *drcontext) {
     per_thread_t *data;
-    instrace(drcontext); /* dump any remaining buffer entries */
+    instrace(drcontext); /* dump any remaining log entries */
     data = drmgr_get_tls_field(drcontext, data_tls_idx);
     dr_mutex_lock(mutex);
-    num_refs += data->num_refs;
     dr_mutex_unlock(mutex);
     log_stream_close(data->logf); /* closes fd too */
     dr_raw_mem_free(data->log_buffer, LOG_BUFFER_SIZE);
@@ -352,7 +393,7 @@ DR_EXPORT void dr_client_main(client_id_t id, int argc, const char *argv[]) {
      * For better performance, we allocate raw TLS so that we can directly
      * access and update it with a single instruction.
      */
-    if (!dr_raw_tls_calloc(&tls_seg, &tls_offs, INSTRACE_TLS_COUNT, 0))
+    if (!dr_raw_tls_calloc(&tls_register, &tls_offs, INSTRACE_TLS_COUNT, 0))
         DR_ASSERT(false);
 
     dr_log(NULL, DR_LOG_ALL, 1, "Client 'instrace' initializing\n");
