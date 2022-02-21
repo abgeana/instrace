@@ -5,9 +5,6 @@
 #include "drmgr.h"
 #include "drreg.h"
 
-#define TLS_SLOT(tls_base, enum_val) (void **)((byte *)(tls_base) + tls_offs + (enum_val))
-#define BUF_PTR(tls_base) *(ins_ref_t **)TLS_SLOT(tls_base, INSTRACE_TLS_OFFS_BUF_PTR)
-
 /* Allocated TLS slot offsets */
 typedef enum {
     INSTRACE_TLS_OFFS_BUF_PTR,

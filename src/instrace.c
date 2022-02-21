@@ -11,24 +11,24 @@
 #include <stddef.h> /* for offsetof */
 #include <stdio.h>
 
-/* Each ins_ref_t describes an executed instruction. */
-typedef struct _ins_ref_t {
+/* Each log_entry_t describes an executed instruction. */
+typedef struct _log_entry_t {
     app_pc pc;
     int opcode;
     reg_t rax;
-} ins_ref_t;
+} log_entry_t;
 
 /* Max number of ins_ref a buffer can have. It should be big enough
  * to hold all entries between clean calls.
  */
 #define MAX_NUM_INS_REFS 8192
 /* The maximum size of buffer for holding ins_refs. */
-#define LOG_BUFFER_SIZE (sizeof(ins_ref_t) * MAX_NUM_INS_REFS)
+#define LOG_BUFFER_SIZE (sizeof(log_entry_t) * MAX_NUM_INS_REFS)
 
 /* thread private log file and counter */
 typedef struct {
     byte *seg_base;
-    ins_ref_t *log_buffer;
+    log_entry_t *log_buffer;
     file_t log;
     FILE *logf;
     uint64 num_refs;
@@ -43,10 +43,10 @@ static int data_tls_idx;
 
 static void instrace(void *drcontext) {
     per_thread_t *data;
-    ins_ref_t *ins_ref, *buf_ptr;
+    log_entry_t *ins_ref, *buf_ptr;
 
     data = drmgr_get_tls_field(drcontext, data_tls_idx);
-    buf_ptr = *((ins_ref_t **)get_buf_ptr(data->seg_base, tls_offs));
+    buf_ptr = *((log_entry_t **)get_buf_ptr(data->seg_base, tls_offs));
     /* Example of dumped file content:
      *   0x7f59c2d002d3: call
      *   0x7ffeacab0ec8: mov
@@ -54,7 +54,7 @@ static void instrace(void *drcontext) {
     /* We use libc's fprintf as it is buffered and much faster than dr_fprintf
      * for repeated printing that dominates performance, as the printing does here.
      */
-    for (ins_ref = (ins_ref_t *)data->log_buffer; ins_ref < buf_ptr; ins_ref++) {
+    for (ins_ref = (log_entry_t *)data->log_buffer; ins_ref < buf_ptr; ins_ref++) {
         /* We use PIFX to avoid leading zeroes and shrink the resulting file. */
         fprintf(
             data->logf,
@@ -120,7 +120,7 @@ insert_save_opcode(void *drcontext, instrlist_t *ilist, instr_t *where, reg_id_t
         where,
         XINST_CREATE_store_2bytes(
             drcontext,
-            OPND_CREATE_MEM16(base, offsetof(ins_ref_t, opcode)),
+            OPND_CREATE_MEM16(base, offsetof(log_entry_t, opcode)),
             opnd_create_reg(scratch))
     );
     // clang-format on
@@ -145,7 +145,7 @@ insert_save_pc(void *drcontext, instrlist_t *ilist, instr_t *where, reg_id_t bas
         where,
         XINST_CREATE_store(
             drcontext,
-            OPND_CREATE_MEMPTR(base, offsetof(ins_ref_t, pc)),
+            OPND_CREATE_MEMPTR(base, offsetof(log_entry_t, pc)),
             opnd_create_reg(scratch)
         )
     );
@@ -154,7 +154,7 @@ insert_save_pc(void *drcontext, instrlist_t *ilist, instr_t *where, reg_id_t bas
 
 static void grab_machine_registers_func() {
     per_thread_t *data;
-    ins_ref_t *buf_ptr;
+    log_entry_t *buf_ptr;
 
     void *drcontext = dr_get_current_drcontext();
     dr_mcontext_t mc = {sizeof(dr_mcontext_t)};
@@ -163,7 +163,7 @@ static void grab_machine_registers_func() {
     dr_get_mcontext(drcontext, &mc);
 
     data = drmgr_get_tls_field(drcontext, data_tls_idx);
-    buf_ptr = *((ins_ref_t **)get_buf_ptr(data->seg_base, tls_offs));
+    buf_ptr = *((log_entry_t **)get_buf_ptr(data->seg_base, tls_offs));
 
     buf_ptr->rax = mc.rax;
 }
@@ -178,7 +178,7 @@ static void instrument_instruction(void *drcontext, instrlist_t *bb, instr_t *in
     }
 
     // clang-format off
-    // reg_ptr = log_buffer entry (i.e. pointer to one ins_ref_t object)
+    // reg_ptr = log_buffer entry (i.e. pointer to one log_entry_t object)
     insert_load_log_buffer  (drcontext, bb, instr, reg_ptr);
     // reg_ptr->pc = pc
     insert_save_pc          (drcontext, bb, instr, reg_ptr, reg_tmp, instr_get_app_pc(instr));
@@ -186,8 +186,8 @@ static void instrument_instruction(void *drcontext, instrlist_t *bb, instr_t *in
     insert_save_opcode      (drcontext, bb, instr, reg_ptr, reg_tmp, instr_get_opcode(instr));
     // reg_ptr-><register> = <register value>
     dr_insert_clean_call    (drcontext, bb, instr, grab_machine_registers_func, false, 0);
-    // log_buffer entry + sizeof(ins_ref_t)
-    insert_update_buf_ptr   (drcontext, bb, instr, reg_ptr, sizeof(ins_ref_t));
+    // log_buffer entry + sizeof(log_entry_t)
+    insert_update_buf_ptr   (drcontext, bb, instr, reg_ptr, sizeof(log_entry_t));
     // clang-format on
 
     if (drreg_unreserve_register(drcontext, bb, instr, reg_ptr) != DRREG_SUCCESS ||
@@ -250,7 +250,7 @@ static void event_thread_init(void *drcontext) {
     data->log_buffer = dr_raw_mem_alloc(LOG_BUFFER_SIZE, DR_MEMPROT_READ | DR_MEMPROT_WRITE, NULL);
     DR_ASSERT(data->seg_base != NULL && data->log_buffer != NULL);
     /* put log_buffer to TLS as starting buf_ptr */
-    BUF_PTR(data->seg_base) = data->log_buffer;
+    set_buf_ptr(data->seg_base, tls_offs, data->log_buffer);
 
     data->num_refs = 0;
 
