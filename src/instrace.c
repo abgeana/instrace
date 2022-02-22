@@ -39,7 +39,6 @@ typedef struct {
     log_entry_t *log_buffer;
     file_t log;
     FILE *logf;
-    uint64 num_refs;
 } per_thread_t;
 
 // Allocated TLS slot offsets.
@@ -58,7 +57,7 @@ static reg_id_t tls_register;
 static uint tls_offs;
 
 static int data_tls_idx;
-static void *mutex;     /* for multithread support */
+static void *mutex; /* for multithread support */
 
 // }}}
 
@@ -88,22 +87,17 @@ static void instrace(void *drcontext) {
 
     data = drmgr_get_tls_field(drcontext, data_tls_idx);
     buf_ptr = *((log_entry_t **)get_buf_ptr(data->seg_base, tls_offs));
-    /* Example of dumped file content:
-     *   0x7f59c2d002d3: call
-     *   0x7ffeacab0ec8: mov
-     */
-    /* We use libc's fprintf as it is buffered and much faster than dr_fprintf
-     * for repeated printing that dominates performance, as the printing does here.
-     */
+
     for (ins_ref = (log_entry_t *)data->log_buffer; ins_ref < buf_ptr; ins_ref++) {
-        /* We use PIFX to avoid leading zeroes and shrink the resulting file. */
+        /* We use libc's fprintf as it is buffered and much faster than dr_fprintf
+         * for repeated printing that dominates performance, as the printing does here.
+         */
         fprintf(
             data->logf,
             PIFX ",%s ," PIFX "\n",
             (ptr_uint_t)ins_ref->pc,
             decode_opcode_name(ins_ref->opcode),
             (ptr_uint_t)ins_ref->rax);
-        data->num_refs++;
     }
 
     set_buf_ptr(data->seg_base, tls_offs, data->log_buffer);
@@ -293,8 +287,6 @@ static void event_thread_init(void *drcontext) {
     DR_ASSERT(data->seg_base != NULL && data->log_buffer != NULL);
     /* put log_buffer to TLS as starting buf_ptr */
     set_buf_ptr(data->seg_base, tls_offs, data->log_buffer);
-
-    data->num_refs = 0;
 
     /* We're going to dump our data to a per-thread file.
      * On Windows we need an absolute path so we place it in
