@@ -29,8 +29,23 @@
 // Each log_entry_t holds state after one instruction.
 typedef struct _log_entry_t {
     app_pc pc;
-    int opcode;
     reg_t rax;
+    reg_t rbx;
+    reg_t rcx;
+    reg_t rdx;
+    reg_t rbp;
+    reg_t rsi;
+    reg_t rdi;
+    reg_t rsp;
+    reg_t r8;
+    reg_t r9;
+    reg_t r10;
+    reg_t r11;
+    reg_t r12;
+    reg_t r13;
+    reg_t r14;
+    reg_t r15;
+    int opcode;
 } log_entry_t;
 
 // Thread private data.
@@ -94,10 +109,27 @@ static void instrace(void *drcontext) {
          */
         fprintf(
             data->logf,
-            PIFX ",%s ," PIFX "\n",
+            PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX
+                 "," PIFX "," PIFX "," PIFX "," PIFX "," PIFX ","
+                 "%s\n",
             (ptr_uint_t)ins_ref->pc,
-            decode_opcode_name(ins_ref->opcode),
-            (ptr_uint_t)ins_ref->rax);
+            (ptr_uint_t)ins_ref->rax,
+            (ptr_uint_t)ins_ref->rbx,
+            (ptr_uint_t)ins_ref->rcx,
+            (ptr_uint_t)ins_ref->rdx,
+            (ptr_uint_t)ins_ref->rbp,
+            (ptr_uint_t)ins_ref->rsi,
+            (ptr_uint_t)ins_ref->rdi,
+            (ptr_uint_t)ins_ref->rsp,
+            (ptr_uint_t)ins_ref->r8,
+            (ptr_uint_t)ins_ref->r9,
+            (ptr_uint_t)ins_ref->r10,
+            (ptr_uint_t)ins_ref->r11,
+            (ptr_uint_t)ins_ref->r12,
+            (ptr_uint_t)ins_ref->r13,
+            (ptr_uint_t)ins_ref->r14,
+            (ptr_uint_t)ins_ref->r15,
+            decode_opcode_name(ins_ref->opcode));
     }
 
     set_buf_ptr(data->seg_base, tls_offs, data->log_buffer);
@@ -202,6 +234,21 @@ static void grab_machine_registers_func() {
     buf_ptr = *((log_entry_t **)get_buf_ptr(data->seg_base, tls_offs));
 
     buf_ptr->rax = mc.rax;
+    buf_ptr->rbx = mc.rbx;
+    buf_ptr->rcx = mc.rcx;
+    buf_ptr->rdx = mc.rdx;
+    buf_ptr->rbp = mc.rbp;
+    buf_ptr->rsi = mc.rsi;
+    buf_ptr->rdi = mc.rdi;
+    buf_ptr->rsp = mc.rsp;
+    buf_ptr->r8 = mc.r8;
+    buf_ptr->r9 = mc.r9;
+    buf_ptr->r10 = mc.r10;
+    buf_ptr->r11 = mc.r11;
+    buf_ptr->r12 = mc.r12;
+    buf_ptr->r13 = mc.r13;
+    buf_ptr->r14 = mc.r14;
+    buf_ptr->r15 = mc.r15;
 }
 
 static void instrument_instruction(void *drcontext, instrlist_t *bb, instr_t *instr) {
@@ -303,6 +350,9 @@ static void event_thread_init(void *drcontext) {
 #endif
             DR_FILE_ALLOW_LARGE);
     data->logf = log_stream_from_file(data->log);
+
+    // Set the header of the CSV file.
+    fprintf(data->logf, "pc,rax,rbx,rcx,rdx,rbp,rsi,rdi,rsp,r8,r9,r10,r11,r12,r13,r14,r15,opcode\n");
 }
 
 static void event_thread_exit(void *drcontext) {

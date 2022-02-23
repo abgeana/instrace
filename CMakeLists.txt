@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.7)
 
 project(instrace)
 
-set(DynamoRIO_DIR /home/abg/projects/dynamorio/DynamoRIO-Linux-9.0.0/cmake)
+set(DynamoRIO_DIR /home/abg/projects/ybn/DynamoRIO-Linux-9.0.1/cmake)
 find_package(DynamoRIO)
 if (NOT DynamoRIO_FOUND)
     message(FATAL_ERROR "DynamoRIO package required to build")

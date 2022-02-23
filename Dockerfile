@@ -18,4 +18,5 @@ WORKDIR /instrace
 RUN cmake -DDynamoRIO_DIR=/DynamoRIO-Linux-${DYNAMORIO_VERSION}/cmake -B build
 RUN cmake --build build
 
-RUN drrun -root /DynamoRIO-Linux-${DYNAMORIO_VERSION} -c build/libinstrace.so -- /usr/bin/ls
+ENV DYNAMORIO_VERSION ${DYNAMORIO_VERSION}
+RUN echo 'go() { drrun -root /DynamoRIO-Linux-${DYNAMORIO_VERSION} -c build/libinstrace.so -- $1; }' >> /root/.bashrc
